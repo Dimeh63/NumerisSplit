@@ -11,6 +11,9 @@ contract FeeRedistributionContract is BaseContract {
     mapping(address => uint256) public balances;
     PAXGImplementation private paxgTokenInstance;
 
+    // Limite maximale de retrait pour éviter des retraits massifs.
+    uint256 public maxWithdrawalAmount = 100 ether;
+
     // Ajout d'événements
     event BalanceUpdated(address indexed user, uint256 amount);
     event FeesClaimed(address indexed user, uint256 amount);
@@ -29,11 +32,15 @@ contract FeeRedistributionContract is BaseContract {
     function claimFees() external {
         uint256 amount = balances[msg.sender];
         require(amount > 0, "No fees to claim");
-        // Ajout d'une limite pour éviter des retraits massifs
-        require(amount <= 100 ether, "Maximum withdrawal limit exceeded");
+        require(amount <= maxWithdrawalAmount, "Maximum withdrawal limit exceeded");
         balances[msg.sender] = 0;
         require(paxgTokenInstance.transfer(msg.sender, amount), "Transfer failed");
         emit FeesClaimed(msg.sender, amount); // Émettre un événement lors de la réclamation des frais
+    }
+
+    // Fonction pour permettre au propriétaire de mettre à jour la limite de retrait.
+    function setMaxWithdrawalAmount(uint256 _amount) external onlyOwner {
+        maxWithdrawalAmount = _amount;
     }
 }
 
