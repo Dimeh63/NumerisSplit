@@ -3,44 +3,97 @@ pragma solidity ^0.8.9;
 
 import "./BaseContract.sol";
 import "./PAXGImplementation.sol";
-import "@openzeppelin/contracts-upgradeable/utils/math/SafeMathUpgradeable.sol";
+import "./FeeRedistributionContract.sol";
+import "./PAXGProxy.sol";
+import "./ProxyAdminWrapper.sol";
 
-contract FeeRedistributionContract is BaseContract {
-    using SafeMathUpgradeable for uint256;
+/**
+ * @title DeployContracts
+ * @dev Ce contrat est responsable du déploiement de plusieurs autres contrats associés.
+ * Il s'assure que les contrats ne sont déployés qu'une seule fois.
+ */
+contract DeployContracts is BaseContract {
+    // Adresses des contrats déployés
+    address public paxgProxy;
+    PAXGImplementation public paxgImplementation;
+    FeeRedistributionContract public feeRedistributionContract;
+    ProxyAdminWrapper public proxyAdmin;
+    
+    // État pour vérifier si les contrats ont déjà été déployés
+    bool public deployed = false;
 
-    mapping(address => uint256) public balances;
-    PAXGImplementation private paxgTokenInstance;
+    /**
+     * @dev Déploie tous les contrats associés.
+     * Cette fonction ne peut être appelée qu'une fois.
+     */
+    function deploy() external onlyOwner {
+        require(!deployed, "Contract already deployed");
 
-    // Limite maximale de retrait pour éviter des retraits massifs.
-    uint256 public maxWithdrawalAmount = 100 ether;
+        deployBaseContract();
+        deployFeeRedistributionContract();
+        deployPAXGImplementation();
+        deployPAXGProxy();
+        transferOwnership();
 
-    // Ajout d'événements
-    event BalanceUpdated(address indexed user, uint256 amount);
-    event FeesClaimed(address indexed user, uint256 amount);
-
-    function initialize(address _paxgToken) public initializer onlyOwner {
-        super.initialize();
-        paxgTokenInstance = PAXGImplementation(_paxgToken);
+        deployed = true; // Indique que les contrats ont été déployés
     }
 
-    function updateBalance(address user, uint256 amount) external {
-        require(msg.sender == address(paxgTokenInstance), "Only PAXGImplementation can update balance");
-        balances[user] = balances[user].add(amount);
-        emit BalanceUpdated(user, amount); // Émettre un événement lors de la mise à jour du solde
+    /**
+     * @dev Déploie le contrat BaseContract.
+     * NOTE: L'adresse du contrat déployé n'est pas stockée ou utilisée.
+     * À envisager si cette étape est nécessaire.
+     */
+    function deployBaseContract() internal {
+        BaseContract baseContract = new BaseContract();
+        baseContract.initialize();
     }
 
-    function claimFees() external {
-        uint256 amount = balances[msg.sender];
-        require(amount > 0, "No fees to claim");
-        require(amount <= maxWithdrawalAmount, "Maximum withdrawal limit exceeded");
-        balances[msg.sender] = 0;
-        require(paxgTokenInstance.transfer(msg.sender, amount), "Transfer failed");
-        emit FeesClaimed(msg.sender, amount); // Émettre un événement lors de la réclamation des frais
+    /**
+     * @dev Déploie le contrat FeeRedistributionContract.
+     */
+    function deployFeeRedistributionContract() internal {
+        feeRedistributionContract = new FeeRedistributionContract();
+        feeRedistributionContract.initialize();
     }
 
-    // Fonction pour permettre au propriétaire de mettre à jour la limite de retrait.
-    function setMaxWithdrawalAmount(uint256 _amount) external onlyOwner {
-        maxWithdrawalAmount = _amount;
+    /**
+     * @dev Déploie le contrat PAXGImplementation.
+     */
+    function deployPAXGImplementation() internal {
+        paxgImplementation = new PAXGImplementation();
+        paxgImplementation.initialize(
+            "PAXG",
+            "PAXG",
+            1000000, // Approvisionnement initial
+            1, // Pourcentage des frais
+            address(feeRedistributionContract)
+        );
+    }
+
+    /**
+     * @dev Déploie le contrat PAXGProxy.
+     */
+    function deployPAXGProxy() internal {
+        proxyAdmin = new ProxyAdminWrapper(msg.sender);
+        bytes memory initData = abi.encodeWithSignature(
+            "initialize(string,string,uint256,uint256,address)",
+            "PAXG",
+            "PAXG",
+            1000000,
+            1,
+            address(feeRedistributionContract)
+        );
+        paxgProxy = address(new PAXGProxy(address(paxgImplementation), address(proxyAdmin), initData));
+        proxyAdmin.transferOwnership(owner());
+    }
+
+    /**
+     * @dev Transfère la propriété des contrats déployés au propriétaire de DeployContracts.
+     */
+    function transferOwnership() internal {
+        feeRedistributionContract.transferOwnership(owner());
+        paxgImplementation.transferOwnership(owner());
     }
 }
+
 
