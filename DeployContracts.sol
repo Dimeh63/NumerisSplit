@@ -12,13 +12,16 @@ contract DeployContracts is BaseContract {
     PAXGImplementation public paxgImplementation;
     FeeRedistributionContract public feeRedistributionContract;
     ProxyAdminWrapper public proxyAdmin;
+    bool public deployed = false; // Ajout d'une variable pour vérifier si le contrat a été déployé
 
     function deploy() external onlyOwner {
+        require(!deployed, "Contract already deployed"); // Vérification pour s'assurer que le contrat n'est déployé qu'une seule fois
         deployBaseContract();
         deployFeeRedistributionContract();
         deployPAXGImplementation();
         deployPAXGProxy();
         transferOwnership();
+        deployed = true; // Mettre à jour l'état après le déploiement
     }
 
     function deployBaseContract() internal {
